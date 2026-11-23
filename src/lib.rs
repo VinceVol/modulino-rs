@@ -87,6 +87,11 @@ pub use pressure::Pressure;
 pub use thermo::{Hs3003Error, Thermo, ThermoMeasurement};
 pub use vibro::{PowerLevel, Vibro};
 
+#[cfg(feature = "async")]
+mod async_knob;
+#[cfg(feature = "async")]
+pub use async_knob::AsyncKnob;
+
 /// Default I2C addresses for Modulino devices.
 ///
 /// These are the factory-default 7-bit I2C addresses. Some modules support
