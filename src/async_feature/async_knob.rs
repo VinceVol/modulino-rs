@@ -2,7 +2,7 @@
 //!
 //! The Modulino Knob module is a rotary encoder with a push button.
 
-use crate::{addresses, Error, I2cDevice, Result};
+use crate::{addresses, async_feature::I2cDevice, Error, Result};
 use embedded_hal_async::i2c::I2c;
 
 /// Driver for the Modulino Knob module (rotary encoder).
@@ -27,7 +27,7 @@ use embedded_hal_async::i2c::I2c;
 ///     println!("Value: {}", knob.value());
 /// }
 /// ```
-pub struct AsyncKnob<I2C> {
+pub struct Knob<I2C> {
     device: I2cDevice<I2C>,
     value: i16,
     pressed: bool,
@@ -37,13 +37,13 @@ pub struct AsyncKnob<I2C> {
     last_debounce_time: u32,
 }
 
-impl<I2C, E> AsyncKnob<I2C>
+impl<I2C, E> Knob<I2C>
 where
     I2C: I2c<Error = E>,
 {
     /// Create a new Knob instance with the default address.
-    pub fn new(i2c: I2C) -> Result<Self, E> {
-        Self::new_with_address(i2c, addresses::KNOB[0])
+    pub async fn new(i2c: I2C) -> Result<Self, E> {
+        Self::new_with_address(i2c, addresses::KNOB[0]).await
     }
 
     /// Discover if a Knob module is connected.
@@ -78,16 +78,16 @@ where
         };
 
         // Read initial state and detect firmware bug
-        let (initial_val, pressed) = knob.read_data()?;
+        let (initial_val, pressed) = knob.read_data().await?;
 
         // Write 100 to test set/get compatibility
-        knob.set_value_internal(100)?;
-        let (test_val, _) = knob.read_data()?;
+        knob.set_value_internal(100).await?;
+        let (test_val, _) = knob.read_data().await?;
         if test_val != 100 {
             knob.bug_on_set = true;
-            knob.set_value_internal(-initial_val)?;
+            knob.set_value_internal(-initial_val).await?;
         } else {
-            knob.set_value_internal(initial_val)?;
+            knob.set_value_internal(initial_val).await?;
         }
 
         knob.value = initial_val;
@@ -95,7 +95,7 @@ where
         knob.last_position = initial_val;
 
         // Apply range constraints and final update
-        knob.update()?;
+        knob.update().await?;
 
         Ok(knob)
     }
@@ -106,9 +106,9 @@ where
     }
 
     /// Read the current encoder state from the device.
-    fn read_data(&mut self) -> Result<(i16, bool), E> {
+    async fn read_data(&mut self) -> Result<(i16, bool), E> {
         let mut buf = [0u8; 4]; // 1 pinstrap + 2 encoder + 1 button
-        self.device.read(&mut buf)?;
+        self.device.read(&mut buf).await?;
 
         // Skip first byte (pinstrap address)
         let raw_value = i16::from_le_bytes([buf[1], buf[2]]);
@@ -121,20 +121,20 @@ where
     ///
     /// This should be called periodically to read the latest values.
     /// Returns `true` if the state has changed.
-    pub fn update(&mut self) -> Result<bool, E> {
+    pub async fn update(&mut self) -> Result<bool, E> {
         let previous_value = self.value;
         let previous_pressed = self.pressed;
 
-        let (mut new_value, new_pressed) = self.read_data()?;
+        let (mut new_value, new_pressed) = self.read_data().await?;
 
         // Apply range constraint if set
         if let Some((min, max)) = self.range {
             if new_value < min {
                 new_value = min;
-                self.set_value_internal(min)?;
+                self.set_value_internal(min).await?;
             } else if new_value > max {
                 new_value = max;
-                self.set_value_internal(max)?;
+                self.set_value_internal(max).await?;
             }
         }
 
@@ -150,7 +150,7 @@ where
     }
 
     /// Set the encoder value.
-    pub fn set_value(&mut self, value: i16) -> Result<(), E> {
+    pub async fn set_value(&mut self, value: i16) -> Result<(), E> {
         // Check range if set
         if let Some((min, max)) = self.range {
             if value < min || value > max {
@@ -158,25 +158,25 @@ where
             }
         }
 
-        self.set_value_internal(value)?;
+        self.set_value_internal(value).await?;
         self.value = value;
         Ok(())
     }
 
     /// Internal method to set the encoder value on the device.
-    fn set_value_internal(&mut self, mut value: i16) -> Result<(), E> {
+    async fn set_value_internal(&mut self, mut value: i16) -> Result<(), E> {
         if self.bug_on_set {
             value = -value;
         }
         let bytes = value.to_le_bytes();
         let data = [bytes[0], bytes[1], 0, 0];
-        self.device.write(&data)?;
+        self.device.write(&data).await?;
         Ok(())
     }
 
     /// Reset the encoder value to 0.
-    pub fn reset(&mut self) -> Result<(), E> {
-        self.set_value(0)
+    pub async fn reset(&mut self) -> Result<(), E> {
+        self.set_value(0).await
     }
 
     /// Check if the button is currently pressed.
@@ -234,12 +234,12 @@ where
     /// - `1` for clockwise rotation
     /// - `-1` for counter-clockwise rotation
     /// - `0` for no rotation or if within debounce period
-    pub fn direction(&mut self, now_ms: u32) -> Result<i8, E> {
+    pub async fn direction(&mut self, now_ms: u32) -> Result<i8, E> {
         if now_ms.wrapping_sub(self.last_debounce_time) < 30 {
             return Ok(0);
         }
 
-        self.update()?;
+        self.update().await?;
         let current = self.value;
         let mut dir = 0;
 

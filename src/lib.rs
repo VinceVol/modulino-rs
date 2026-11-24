@@ -87,10 +87,15 @@ pub use pressure::Pressure;
 pub use thermo::{Hs3003Error, Thermo, ThermoMeasurement};
 pub use vibro::{PowerLevel, Vibro};
 
+/// Same thing as the blocking version of the original module except with async i2c
 #[cfg(feature = "async")]
-mod async_knob;
-#[cfg(feature = "async")]
-pub use async_knob::AsyncKnob;
+pub mod async_feature {
+    pub mod async_i2c_device;
+    pub mod async_knob;
+
+    pub use async_i2c_device::I2cDevice;
+    pub use async_knob::Knob;
+}
 
 /// Default I2C addresses for Modulino devices.
 ///
